@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { classifyAndSave, sendTelegram } from '@/lib/chum'
+import { getTodayEvents, createCalendarEvent, formatEvents } from '@/lib/google-calendar'
 
 // ตรวจสอบ LINE signature
 function verifySignature(body, signature) {
@@ -45,16 +46,51 @@ export async function POST(request) {
     const replyToken = event.replyToken
 
     try {
-      // จำแนกและบันทึก
+      const lowerText = text.trim().toLowerCase()
+
+      // คำสั่ง: ดูตารางวันนี้
+      if (lowerText.includes('ตารางวันนี้') || lowerText.includes('กำหนดการวันนี้')) {
+        const events = await getTodayEvents()
+        const reply = `📅 <b>ตารางวันนี้</b>\n\n${formatEvents(events)}`
+        await replyLine(replyToken, reply.replace(/<[^>]*>/g, ''))
+        return
+      }
+
+      // detect วันเวลา → สร้าง Calendar event
+      const dateMatch = text.match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?.*?(\d{1,2})[:\.](\d{2})\s*(น\.?|am|pm)?/i)
+      const timeMatch = !dateMatch && text.match(/(?:พรุ่งนี้|วันนี้|tomorrow|today).*?(\d{1,2})[:\.](\d{2})/i)
+
+      if (dateMatch || timeMatch) {
+        const now = new Date()
+        let startDate
+
+        if (dateMatch) {
+          const day = parseInt(dateMatch[1])
+          const month = parseInt(dateMatch[2]) - 1
+          const year = dateMatch[3] ? (dateMatch[3].length === 2 ? 2000 + parseInt(dateMatch[3]) : parseInt(dateMatch[3])) : now.getFullYear()
+          const hour = parseInt(dateMatch[4])
+          const minute = parseInt(dateMatch[5])
+          startDate = new Date(year, month, day, hour, minute)
+        } else {
+          const isTomorrow = /พรุ่งนี้|tomorrow/i.test(text)
+          startDate = new Date(now)
+          if (isTomorrow) startDate.setDate(startDate.getDate() + 1)
+          const hour = parseInt(timeMatch[1])
+          const minute = parseInt(timeMatch[2])
+          startDate.setHours(hour, minute, 0, 0)
+        }
+
+        const endDate = new Date(startDate.getTime() + 60 * 60 * 1000)
+        const event = await createCalendarEvent(text.slice(0, 100), startDate.toISOString(), endDate.toISOString(), 'สร้างจาก LINE Bot')
+        await replyLine(replyToken, `📅 สร้าง Calendar event แล้วครับ\n\n"${event.summary}"\n🕐 ${startDate.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}`)
+        await sendTelegram(`📅 <b>สร้าง Calendar Event</b>\n\n📌 ${text}`)
+        return
+      }
+
+      // จำแนกและบันทึกลง Notion ตามปกติ
       const { label } = await classifyAndSave(text)
-
-      // ตอบกลับ LINE
       await replyLine(replyToken, `✅ บันทึกแล้วใน ${label}`)
-
-      // แจ้ง Telegram
-      await sendTelegram(
-        `🤖 <b>CHUM-OS รับข้อความใหม่</b>\n\n📝 ${text}\n\n📂 บันทึกใน: ${label}`
-      )
+      await sendTelegram(`🤖 <b>CHUM-OS รับข้อความใหม่</b>\n\n📝 ${text}\n\n📂 บันทึกใน: ${label}`)
     } catch (err) {
       console.error('Error:', err)
       await replyLine(replyToken, '❌ เกิดข้อผิดพลาด ลองใหม่อีกครั้งนะครับ')
