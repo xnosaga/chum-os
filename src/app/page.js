@@ -88,6 +88,27 @@ export default function Dashboard() {
               </div>
             </section>
 
+            {/* Claude API Usage */}
+            {data?.usage && (
+              <section style={{ marginBottom: '40px' }}>
+                <h2 style={{ fontSize: '13px', fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 12px' }}>Claude API Usage</h2>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
+                  {[
+                    { label: 'คำขอทั้งหมด', value: data.usage.calls.toLocaleString(), unit: 'calls' },
+                    { label: 'Input tokens', value: data.usage.inputTokens.toLocaleString(), unit: 'tokens' },
+                    { label: 'Output tokens', value: data.usage.outputTokens.toLocaleString(), unit: 'tokens' },
+                    { label: 'ค่าใช้จ่ายประมาณ', value: `$${data.usage.costUSD}`, unit: 'USD' },
+                  ].map(item => (
+                    <div key={item.label} style={{ border: '1px solid #e5e5e5', borderRadius: '10px', padding: '16px' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '700', letterSpacing: '-0.5px' }}>{item.value}</div>
+                      <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ fontSize: '11px', color: '#bbb', margin: '8px 0 0' }}>Haiku: $0.80/M input · $4.00/M output · สะสมตั้งแต่เริ่มใช้</p>
+              </section>
+            )}
+
             {/* Stats */}
             <section style={{ marginBottom: '40px' }}>
               <h2 style={{ fontSize: '13px', fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 12px' }}>สถิติรายหมวดหมู่</h2>

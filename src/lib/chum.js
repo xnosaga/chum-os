@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { Client } from '@notionhq/client'
+import { addUsage } from '@/lib/usage-tracker'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const notion = new Client({ auth: process.env.NOTION_TOKEN })
@@ -41,6 +42,8 @@ export async function classifyAndSave(text) {
 ข้อความ: "${text}"`
     }]
   })
+
+  addUsage(response.usage.input_tokens, response.usage.output_tokens).catch(() => {})
 
   const category = response.content[0].text.trim().toLowerCase()
   const validCategory = PAGE_MAP[category] ? category : 'inbox'

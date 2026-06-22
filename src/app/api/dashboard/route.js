@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Client } from '@notionhq/client'
-import { getTodayEvents, formatEvents } from '@/lib/google-calendar'
+import { getTodayEvents } from '@/lib/google-calendar'
+import { getUsageStats } from '@/lib/usage-tracker'
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN })
 
@@ -45,13 +46,14 @@ async function getRecentLogs(limit = 10) {
 
 export async function GET() {
   try {
-    const [stats, logs, calendarEvents] = await Promise.all([
+    const [stats, logs, calendarEvents, usage] = await Promise.all([
       Promise.all(Object.entries(PAGES).map(async ([key, page]) => ({
         key, label: page.label, color: page.color,
         count: await getPageStats(page.id)
       }))),
       getRecentLogs(10),
       getTodayEvents().catch(() => []),
+      getUsageStats().catch(() => null),
     ])
 
     const status = {
@@ -62,7 +64,7 @@ export async function GET() {
       anthropic: !!process.env.ANTHROPIC_API_KEY,
     }
 
-    return NextResponse.json({ stats, logs, calendarEvents, status })
+    return NextResponse.json({ stats, logs, calendarEvents, status, usage })
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
