@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { classifyAndSave, sendTelegram } from '@/lib/chum'
 import { getTodayEvents, createCalendarEvent, formatEvents } from '@/lib/google-calendar'
+import { searchNotion } from '@/lib/notion-search'
 
 // ตรวจสอบ LINE signature
 function verifySignature(body, signature) {
@@ -47,6 +48,20 @@ export async function POST(request) {
 
     try {
       const lowerText = text.trim().toLowerCase()
+
+      // คำสั่ง: ค้นหา Notion
+      const searchMatch = text.match(/^(?:ค้นหา|search|หา)[:\s]+(.+)/i)
+      if (searchMatch) {
+        const query = searchMatch[1].trim()
+        const results = await searchNotion(query)
+        if (results.length === 0) {
+          await replyLine(replyToken, `🔍 ไม่พบผลลัพธ์สำหรับ "${query}"`)
+        } else {
+          const lines = results.map((r, i) => `${i + 1}. ${r.emoji} ${r.title}\n   📂 ${r.category} · ${r.date}`).join('\n\n')
+          await replyLine(replyToken, `🔍 ผลการค้นหา "${query}" (${results.length} รายการ)\n\n${lines}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
 
       // คำสั่ง: ดูตารางวันนี้
       if (lowerText.includes('ตารางวันนี้') || lowerText.includes('กำหนดการวันนี้')) {
