@@ -49,10 +49,20 @@ export async function POST(request) {
     try {
       const lowerText = text.trim().toLowerCase()
 
+      // คำสั่ง: วิธีใช้
+      if (lowerText === 'วิธีใช้' || lowerText === 'help' || lowerText === '?') {
+        await replyLine(replyToken, `🤖 CHUM-OS — คำสั่งที่ใช้ได้\n\n📝 พิมพ์ข้อความทั่วไป → บันทึกลง Notion อัตโนมัติ\n\n📅 ตารางวันนี้ → ดู Calendar\n\n🔍 ค้นหา: [คำ] → ค้นหาใน Notion\n   ตัวอย่าง: ค้นหา: ประชุม\n\n📆 สร้าง event:\n   ตัวอย่าง: ประชุม 25/6 14:00\n   ตัวอย่าง: พรุ่งนี้ 10:30 ส่งรายงาน`)
+        return NextResponse.json({ ok: true })
+      }
+
       // คำสั่ง: ค้นหา Notion
-      const searchMatch = text.match(/^(?:ค้นหา|search|หา)[:\s]+(.+)/i)
+      const searchMatch = text.match(/^(?:ค้นหา|search|หา)[:\s]*(.*)$/i)
       if (searchMatch) {
         const query = searchMatch[1].trim()
+        if (!query) {
+          await replyLine(replyToken, '🔍 พิมพ์คำที่ต้องการค้นหา\nตัวอย่าง: ค้นหา: ประชุม')
+          return NextResponse.json({ ok: true })
+        }
         const results = await searchNotion(query)
         if (results.length === 0) {
           await replyLine(replyToken, `🔍 ไม่พบผลลัพธ์สำหรับ "${query}"`)
