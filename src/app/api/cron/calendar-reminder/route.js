@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getUpcomingEvents, formatEvents } from '@/lib/google-calendar'
+import { getTodayEvents, formatEvents } from '@/lib/google-calendar'
 import { sendTelegram } from '@/lib/chum'
 
 export async function GET(request) {
@@ -9,11 +9,9 @@ export async function GET(request) {
   }
 
   try {
-    const events = await getUpcomingEvents(30)
-    if (events.length === 0) return NextResponse.json({ ok: true, message: 'no upcoming events' })
-
+    const events = await getTodayEvents()
     const text = formatEvents(events)
-    await sendTelegram(`🔔 <b>แจ้งเตือน Calendar</b>\n\nมีกำหนดการใน 30 นาทีข้างหน้า:\n\n${text}`)
+    await sendTelegram(`🌅 <b>สวัสดีตอนเช้า! ตารางวันนี้</b>\n\n${text}`)
 
     return NextResponse.json({ ok: true, notified: events.length })
   } catch (err) {
