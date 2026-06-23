@@ -49,20 +49,28 @@ export async function classifyAndSave(text) {
   const validCategory = PAGE_MAP[category] ? category : 'inbox'
   const pageId = PAGE_MAP[validCategory]
 
-  // 2. บันทึกลง Notion เป็น child page
+  // 2. บันทึกลง Notion
   const now = new Date().toLocaleString('th-TH', {
     timeZone: 'Asia/Bangkok',
     dateStyle: 'short',
     timeStyle: 'short',
   })
+  const todayISO = new Date().toISOString().slice(0, 10)
+
+  const isDatabase = validCategory === 'tasks'
 
   await notion.pages.create({
-    parent: { page_id: pageId },
-    properties: {
-      title: {
-        title: [{ text: { content: text.slice(0, 100) } }]
-      }
-    },
+    parent: isDatabase
+      ? { database_id: pageId }
+      : { page_id: pageId },
+    properties: isDatabase
+      ? {
+          Name: { title: [{ text: { content: text.slice(0, 100) } }] },
+          Date: { date: { start: todayISO } },
+        }
+      : {
+          title: { title: [{ text: { content: text.slice(0, 100) } }] },
+        },
     children: [{
       object: 'block',
       type: 'paragraph',
