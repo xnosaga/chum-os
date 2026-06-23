@@ -23,21 +23,47 @@ const CATEGORY_LABELS = {
   income:  '💰 Second Income',
 }
 
+function toISO(dateStr) {
+  if (!dateStr) return null
+  // แปลง พ.ศ. → ค.ศ. และ format ต่างๆ
+  const cleaned = dateStr.trim()
+    .replace(/(\d{4})/g, m => parseInt(m) > 2400 ? String(parseInt(m) - 543) : m)
+    .replace(/[\/\.]/g, '-')
+  // dd-mm-yyyy หรือ d-m-yyyy
+  const match = cleaned.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/)
+  if (match) return `${match[3]}-${match[2].padStart(2,'0')}-${match[1].padStart(2,'0')}`
+  // yyyy-mm-dd
+  if (/^\d{4}-\d{2}-\d{2}/.test(cleaned)) return cleaned.slice(0, 10)
+  return null
+}
+
 export async function classifyAndSave(text) {
-  // 1. ให้ Claude จำแนกประเภท
+  const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+
+  // ให้ Claude จำแนกและแยก fields พร้อมกัน
   const response = await anthropic.messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 100,
+    max_tokens: 400,
     messages: [{
       role: 'user',
-      content: `จำแนกข้อความนี้เป็น 1 ประเภทเท่านั้น ตอบแค่คำเดียว: inbox / tasks / workout / content / income
+      content: `วิเคราะห์ข้อความนี้แล้วตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น:
 
-กฎ:
-- tasks = งาน ประชุม ส่งเอกสาร deadline
+{
+  "category": "inbox|tasks|workout|content|income",
+  "task": "ชื่องาน/หัวข้อสั้นๆ (ถ้าเป็น tasks)",
+  "date": "dd/mm/yyyy หรือ null (ถ้าเป็น tasks ให้แปลงวันที่จากข้อความ พ.ศ.→ค.ศ.)",
+  "description": "รายละเอียดเพิ่มเติม หรือ null",
+  "location": "สถานที่ หรือ null"
+}
+
+กฎ category:
+- tasks = งาน ประชุม อบรม ส่งเอกสาร deadline กิจกรรม
 - workout = ออกกำลังกาย อาหาร น้ำหนัก สุขภาพ
 - content = คลิป วิดีโอ ไอเดียคอนเทนต์ YouTube TikTok
 - income = รายได้เสริม affiliate course ขายของ
-- inbox = อื่นๆ ไม่แน่ใจ
+- inbox = อื่นๆ
+
+วันนี้คือ ${todayISO} (ค.ศ.)
 
 ข้อความ: "${text}"`
     }]
@@ -45,49 +71,43 @@ export async function classifyAndSave(text) {
 
   addUsage(response.usage.input_tokens, response.usage.output_tokens).catch(() => {})
 
-  const category = response.content[0].text.trim().toLowerCase()
-  const validCategory = PAGE_MAP[category] ? category : 'inbox'
-  const pageId = PAGE_MAP[validCategory]
+  let parsed = {}
+  try {
+    const json = response.content[0].text.match(/\{[\s\S]*\}/)
+    parsed = json ? JSON.parse(json[0]) : {}
+  } catch {}
 
-  // 2. บันทึกลง Notion
-  const now = new Date().toLocaleString('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    dateStyle: 'short',
-    timeStyle: 'short',
-  })
-  const todayISO = new Date().toISOString().slice(0, 10)
+  const category = parsed.category && PAGE_MAP[parsed.category] ? parsed.category : 'inbox'
+  const pageId = PAGE_MAP[category]
+  const isDatabase = category === 'tasks'
 
-  const isDatabase = validCategory === 'tasks'
+  const dateISO = toISO(parsed.date) || todayISO
+  const taskTitle = parsed.task || text.slice(0, 100)
+  const description = [parsed.description, parsed.location].filter(Boolean).join(' · ') || null
+
+  const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' })
+
+  const properties = isDatabase
+    ? {
+        Task: { title: [{ text: { content: taskTitle } }] },
+        Date: { date: { start: dateISO } },
+        ...(description && { Description: { rich_text: [{ text: { content: description } }] } }),
+      }
+    : {
+        title: { title: [{ text: { content: text.slice(0, 100) } }] },
+      }
 
   await notion.pages.create({
-    parent: isDatabase
-      ? { database_id: pageId }
-      : { page_id: pageId },
+    parent: isDatabase ? { database_id: pageId } : { page_id: pageId },
     icon: isDatabase ? { type: 'emoji', emoji: '✅' } : undefined,
-    properties: isDatabase
-      ? {
-          Task: { title: [{ text: { content: text.slice(0, 100) } }] },
-          Date: { date: { start: todayISO } },
-        }
-      : {
-          title: { title: [{ text: { content: text.slice(0, 100) } }] },
-        },
+    properties,
     children: [{
-      object: 'block',
-      type: 'paragraph',
-      paragraph: {
-        rich_text: [{
-          type: 'text',
-          text: { content: `📌 ${text}\n\n🕐 ${now} · จาก LINE Bot` }
-        }]
-      }
+      object: 'block', type: 'paragraph',
+      paragraph: { rich_text: [{ type: 'text', text: { content: `📌 ${text}\n\n🕐 ${now} · จาก LINE Bot` } }] }
     }]
   })
 
-  return {
-    category: validCategory,
-    label: CATEGORY_LABELS[validCategory],
-  }
+  return { category, label: CATEGORY_LABELS[category] }
 }
 
 // ส่ง Telegram notification
