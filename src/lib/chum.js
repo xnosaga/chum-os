@@ -65,7 +65,7 @@ export async function classifyAndSave(text) {
       : { page_id: pageId },
     properties: isDatabase
       ? {
-          Name: { title: [{ text: { content: text.slice(0, 100) } }] },
+          Task: { title: [{ text: { content: text.slice(0, 100) } }] },
           Date: { date: { start: todayISO } },
         }
       : {
