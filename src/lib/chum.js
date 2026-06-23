@@ -50,8 +50,10 @@ export async function classifyAndSave(text) {
 
 {
   "category": "inbox|tasks|workout|content|income",
-  "task": "ชื่องาน/หัวข้อสั้นๆ (ถ้าเป็น tasks)",
-  "date": "dd/mm/yyyy หรือ null (ถ้าเป็น tasks ให้แปลงวันที่จากข้อความ พ.ศ.→ค.ศ.)",
+  "task": "ชื่องาน/หัวข้อสั้นๆ",
+  "date": "dd/mm/yyyy หรือ null (แปลง พ.ศ.→ค.ศ. ถ้ามี)",
+  "start_time": "HH:MM หรือ null (เวลาเริ่ม 24hr format)",
+  "end_time": "HH:MM หรือ null (เวลาสิ้นสุด 24hr format)",
   "description": "รายละเอียดเพิ่มเติม หรือ null",
   "location": "สถานที่ หรือ null"
 }
@@ -85,12 +87,19 @@ export async function classifyAndSave(text) {
   const taskTitle = parsed.task || text.slice(0, 100)
   const description = [parsed.description, parsed.location].filter(Boolean).join(' · ') || null
 
+  const startDateTime = parsed.start_time ? `${dateISO}T${parsed.start_time}:00+07:00` : dateISO
+  const endDateTime = parsed.end_time ? `${dateISO}T${parsed.end_time}:00+07:00` : null
+
   const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' })
+
+  const dateProperty = endDateTime
+    ? { date: { start: startDateTime, end: endDateTime } }
+    : { date: { start: startDateTime } }
 
   const properties = isDatabase
     ? {
         Task: { title: [{ text: { content: taskTitle } }] },
-        Date: { date: { start: dateISO } },
+        Date: dateProperty,
         ...(description && { Description: { rich_text: [{ text: { content: description } }] } }),
       }
     : {
