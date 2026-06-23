@@ -8,7 +8,7 @@ const INPUT_COST_PER_M = 0.80
 const OUTPUT_COST_PER_M = 4.00
 
 async function findOrCreateStatsPage() {
-  const parentId = process.env.NOTION_INBOX_PAGE_ID
+  const parentId = (process.env.NOTION_INBOX_PAGE_ID || '').replace(/-/g, '')
   const res = await notion.blocks.children.list({ block_id: parentId, page_size: 100 })
   const existing = res.results.find(
     b => b.type === 'child_page' && b.child_page.title === STATS_TITLE
@@ -30,9 +30,13 @@ async function findOrCreateStatsPage() {
   return page.id
 }
 
-async function readStats(pageId) {
+async function getCodeBlock(pageId) {
   const res = await notion.blocks.children.list({ block_id: pageId })
-  const codeBlock = res.results.find(b => b.type === 'code')
+  return res.results.find(b => b.type === 'code') || null
+}
+
+async function readStats(pageId) {
+  const codeBlock = await getCodeBlock(pageId)
   if (!codeBlock) return { input: 0, output: 0, calls: 0 }
   try {
     return JSON.parse(codeBlock.code.rich_text[0]?.plain_text || '{}')
@@ -42,8 +46,7 @@ async function readStats(pageId) {
 }
 
 async function writeStats(pageId, stats) {
-  const res = await notion.blocks.children.list({ block_id: pageId })
-  const codeBlock = res.results.find(b => b.type === 'code')
+  const codeBlock = await getCodeBlock(pageId)
   if (!codeBlock) return
   await notion.blocks.update(codeBlock.id, {
     code: {
