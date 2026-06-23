@@ -109,7 +109,7 @@ export async function classifyAndSave(text) {
   "start_time": "HH:MM หรือ null (24hr)",
   "end_time": "HH:MM หรือ null (24hr)",
   "description": "รายละเอียด หรือ null",
-  "location": "สถานที่ หรือ null"
+  "location": "Google Maps URL ถ้ามี https://maps.google.com หรือ https://goo.gl/maps ใน text ให้ใส่ URL นั้น หรือ null"
 }
 
 กฎ category:
@@ -176,7 +176,7 @@ export async function classifyAndSave(text) {
           Task: { title: [{ text: { content: taskTitle } }] },
           Date: dateProperty,
           ...(description && { Description: { rich_text: [{ text: { content: description } }] } }),
-          ...(location && { Location: { rich_text: [{ text: { content: location } }] } }),
+          ...(location && { Location: { url: location } }),
         }
       : {
           title: { title: [{ text: { content: text.slice(0, 100) } }] },
