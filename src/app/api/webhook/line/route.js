@@ -1,8 +1,25 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { Client } from '@notionhq/client'
 import { classifyAndSave, sendTelegram } from '@/lib/chum'
 import { getTodayEvents, createCalendarEvent, formatEvents } from '@/lib/google-calendar'
 import { searchNotion } from '@/lib/notion-search'
+
+const notion = new Client({ auth: process.env.NOTION_TOKEN })
+
+async function saveLocationToNotion(title, address, mapsUrl) {
+  const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' })
+  await notion.pages.create({
+    parent: { page_id: process.env.NOTION_INBOX_PAGE_ID },
+    properties: {
+      title: { title: [{ text: { content: `📍 ${title}` } }] },
+    },
+    children: [{
+      object: 'block', type: 'paragraph',
+      paragraph: { rich_text: [{ type: 'text', text: { content: `📍 ${title}\n📌 ${address || ''}\n🗺️ ${mapsUrl}\n\n🕐 ${now} · จาก LINE` } }] }
+    }]
+  })
+}
 
 // ตรวจสอบ LINE signature
 function verifySignature(body, signature) {
@@ -44,6 +61,16 @@ export async function POST(request) {
   const events = body.events || []
 
   for (const event of events) {
+    // LINE Location pin → บันทึกลง Notion Inbox พร้อม Google Maps URL
+    if (event.type === 'message' && event.message.type === 'location') {
+      const { title, address, latitude, longitude } = event.message
+      const mapsUrl = `https://maps.google.com/?q=${latitude},${longitude}`
+      const label = title || address || 'สถานที่'
+      await saveLocationToNotion(label, address, mapsUrl)
+      await replyLine(event.replyToken, `📍 บันทึกสถานที่แล้วครับ\n\n${label}\n${mapsUrl}`)
+      continue
+    }
+
     // รูปภาพ / สติ๊กเกอร์ / ไฟล์ / เสียง
     if (event.type === 'message' && event.message.type !== 'text') {
       const typeMap = { image: 'รูปภาพ', sticker: 'สติ๊กเกอร์', file: 'ไฟล์', audio: 'เสียง', video: 'วิดีโอ' }
