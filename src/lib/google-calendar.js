@@ -79,15 +79,14 @@ export async function createCalendarEvent(title, startDateTime, endDateTime, des
   return res.data
 }
 
-// ดึง events วันนี้
-export async function getTodayEvents() {
+// ดึง events วันที่กำหนด (default = วันนี้)
+export async function getTodayEvents(date = new Date()) {
   const auth = getAuthenticatedClient()
   const calendar = google.calendar({ version: 'v3', auth })
 
-  const now = new Date()
-  const startOfDay = new Date(now)
+  const startOfDay = new Date(date)
   startOfDay.setHours(0, 0, 0, 0)
-  const endOfDay = new Date(now)
+  const endOfDay = new Date(date)
   endOfDay.setHours(23, 59, 59, 999)
 
   const res = await calendar.events.list({
