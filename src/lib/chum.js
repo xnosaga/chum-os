@@ -41,31 +41,34 @@ function toISO(dateStr) {
 export async function classifyAndSave(text) {
   const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 
-  // ให้ Claude จำแนกและแยก fields พร้อมกัน
+  // ให้ Claude จำแนกและแยก fields พร้อมกัน รองรับหลาย events
   const response = await anthropic.messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 400,
+    max_tokens: 800,
     messages: [{
       role: 'user',
-      content: `วิเคราะห์ข้อความนี้แล้วตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น:
+      content: `วิเคราะห์ข้อความนี้แล้วตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น
+
+ถ้ามีหลาย event/กิจกรรม ให้ตอบเป็น array ถ้ามีแค่ 1 ให้ตอบเป็น object เดียว:
 
 {
   "category": "inbox|tasks|workout|content|income",
   "task": "ชื่องาน/หัวข้อสั้นๆ",
-  "date": "dd/mm/yyyy หรือ null (แปลง พ.ศ.→ค.ศ. ถ้ามี)",
-  "start_time": "HH:MM หรือ null (เวลาเริ่ม 24hr format)",
-  "end_time": "HH:MM หรือ null (เวลาสิ้นสุด 24hr format)",
-  "description": "รายละเอียดเพิ่มเติม หรือ null",
+  "date": "dd/mm/yyyy หรือ null",
+  "start_time": "HH:MM หรือ null",
+  "end_time": "HH:MM หรือ null",
+  "description": "รายละเอียด หรือ null",
   "location": "สถานที่ หรือ null"
 }
 
 กฎ category:
-- tasks = งาน ประชุม อบรม ส่งเอกสาร deadline กิจกรรม
+- tasks = งาน ประชุม อบรม กิจกรรม ส่งเอกสาร deadline นัดหมาย ทุกอย่างที่มีวันที่/เวลา
 - workout = ออกกำลังกาย อาหาร น้ำหนัก สุขภาพ
 - content = คลิป วิดีโอ ไอเดียคอนเทนต์ YouTube TikTok
 - income = รายได้เสริม affiliate course ขายของ
-- inbox = อื่นๆ
+- inbox = อื่นๆ ที่ไม่ใช่หมวดข้างบน
 
+หมายเหตุ: แปลง พ.ศ.→ค.ศ. โดยลบ 543 (เช่น 2569→2026, 69→2026)
 วันนี้คือ ${todayISO} (ค.ศ.)
 
 ข้อความ: "${text}"`
@@ -74,62 +77,65 @@ export async function classifyAndSave(text) {
 
   addUsage(response.usage.input_tokens, response.usage.output_tokens).catch(() => {})
 
-  let parsed = {}
+  let items = []
   try {
-    const json = response.content[0].text.match(/\{[\s\S]*\}/)
-    parsed = json ? JSON.parse(json[0]) : {}
+    const raw = response.content[0].text
+    const jsonMatch = raw.match(/(\[[\s\S]*\]|\{[\s\S]*\})/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0])
+      items = Array.isArray(parsed) ? parsed : [parsed]
+    }
   } catch {}
 
-  const category = parsed.category && PAGE_MAP[parsed.category] ? parsed.category : 'inbox'
-  const pageId = PAGE_MAP[category]
-  const isDatabase = category === 'tasks'
-
-  const dateISO = toISO(parsed.date) || todayISO
-  const taskTitle = parsed.task || text.slice(0, 100)
-  const description = [parsed.description, parsed.location].filter(Boolean).join(' · ') || null
-
-  const startDateTime = parsed.start_time ? `${dateISO}T${parsed.start_time}:00+07:00` : dateISO
-  const endDateTime = parsed.end_time ? `${dateISO}T${parsed.end_time}:00+07:00` : null
+  if (items.length === 0) items = [{}]
 
   const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' })
+  let lastCategory = 'inbox'
 
-  const dateProperty = endDateTime
-    ? { date: { start: startDateTime, end: endDateTime } }
-    : { date: { start: startDateTime } }
+  for (const parsed of items) {
+    const category = parsed.category && PAGE_MAP[parsed.category] ? parsed.category : 'inbox'
+    lastCategory = category
+    const pageId = PAGE_MAP[category]
+    const isDatabase = category === 'tasks'
 
-  const properties = isDatabase
-    ? {
-        Task: { title: [{ text: { content: taskTitle } }] },
-        Date: dateProperty,
-        ...(description && { Description: { rich_text: [{ text: { content: description } }] } }),
-      }
-    : {
-        title: { title: [{ text: { content: text.slice(0, 100) } }] },
-      }
+    const dateISO = toISO(parsed.date) || todayISO
+    const taskTitle = parsed.task || text.slice(0, 100)
+    const description = [parsed.description, parsed.location].filter(Boolean).join(' · ') || null
 
-  await notion.pages.create({
-    parent: isDatabase ? { database_id: pageId } : { page_id: pageId },
-    icon: isDatabase ? { type: 'emoji', emoji: '✅' } : undefined,
-    properties,
-    children: [{
-      object: 'block', type: 'paragraph',
-      paragraph: { rich_text: [{ type: 'text', text: { content: `📌 ${text}\n\n🕐 ${now} · จาก LINE Bot` } }] }
-    }]
-  })
+    const startDateTime = parsed.start_time ? `${dateISO}T${parsed.start_time}:00+07:00` : dateISO
+    const endDateTime = parsed.end_time ? `${dateISO}T${parsed.end_time}:00+07:00` : null
 
-  // สร้าง Google Calendar event อัตโนมัติถ้าเป็น tasks และมีวันที่
-  if (isDatabase && parsed.date) {
-    const calStart = startDateTime
-    const calEnd = endDateTime || `${dateISO}T${parsed.start_time ? parsed.start_time : '09:00'}:00+07:00`
-    const calEndFinal = endDateTime || new Date(new Date(calEnd).getTime() + 60 * 60 * 1000).toISOString()
-    createCalendarEvent(
-      taskTitle,
-      calStart,
-      calEndFinal,
-      description || text
-    ).catch(() => {})
+    const dateProperty = endDateTime
+      ? { date: { start: startDateTime, end: endDateTime } }
+      : { date: { start: startDateTime } }
+
+    const properties = isDatabase
+      ? {
+          Task: { title: [{ text: { content: taskTitle } }] },
+          Date: dateProperty,
+          ...(description && { Description: { rich_text: [{ text: { content: description } }] } }),
+        }
+      : {
+          title: { title: [{ text: { content: text.slice(0, 100) } }] },
+        }
+
+    await notion.pages.create({
+      parent: isDatabase ? { database_id: pageId } : { page_id: pageId },
+      icon: isDatabase ? { type: 'emoji', emoji: '✅' } : undefined,
+      properties,
+      children: [{
+        object: 'block', type: 'paragraph',
+        paragraph: { rich_text: [{ type: 'text', text: { content: `📌 ${text}\n\n🕐 ${now} · จาก LINE Bot` } }] }
+      }]
+    })
+
+    if (isDatabase && parsed.date) {
+      const calEnd = endDateTime || new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString()
+      createCalendarEvent(taskTitle, startDateTime, calEnd, description || text).catch(() => {})
+    }
   }
 
+  const category = lastCategory
   return { category, label: CATEGORY_LABELS[category] }
 }
 
