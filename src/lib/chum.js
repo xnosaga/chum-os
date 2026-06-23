@@ -161,7 +161,8 @@ export async function classifyAndSave(text) {
 
     const dateISO = toISO(parsed.date) || todayISO
     const taskTitle = parsed.task || text.slice(0, 100)
-    const description = [parsed.description, parsed.location].filter(Boolean).join(' · ') || null
+    const description = parsed.description || null
+    const location = parsed.location || null
 
     const startDateTime = parsed.start_time ? `${dateISO}T${parsed.start_time}:00+07:00` : dateISO
     const endDateTime = parsed.end_time ? `${dateISO}T${parsed.end_time}:00+07:00` : null
@@ -175,6 +176,7 @@ export async function classifyAndSave(text) {
           Task: { title: [{ text: { content: taskTitle } }] },
           Date: dateProperty,
           ...(description && { Description: { rich_text: [{ text: { content: description } }] } }),
+          ...(location && { Location: { rich_text: [{ text: { content: location } }] } }),
         }
       : {
           title: { title: [{ text: { content: text.slice(0, 100) } }] },
@@ -192,7 +194,8 @@ export async function classifyAndSave(text) {
 
     if (isDatabase && parsed.date) {
       const calEnd = endDateTime || new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString()
-      createCalendarEvent(taskTitle, startDateTime, calEnd, description || text).catch(() => {})
+      const calDesc = [description, location].filter(Boolean).join(' · ') || text
+      createCalendarEvent(taskTitle, startDateTime, calEnd, calDesc).catch(() => {})
     }
   }
 
