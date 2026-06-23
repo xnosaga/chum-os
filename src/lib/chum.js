@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { Client } from '@notionhq/client'
 import { addUsage } from '@/lib/usage-tracker'
+import { createCalendarEvent } from '@/lib/google-calendar'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const notion = new Client({ auth: process.env.NOTION_TOKEN })
@@ -115,6 +116,19 @@ export async function classifyAndSave(text) {
       paragraph: { rich_text: [{ type: 'text', text: { content: `📌 ${text}\n\n🕐 ${now} · จาก LINE Bot` } }] }
     }]
   })
+
+  // สร้าง Google Calendar event อัตโนมัติถ้าเป็น tasks และมีวันที่
+  if (isDatabase && parsed.date) {
+    const calStart = startDateTime
+    const calEnd = endDateTime || `${dateISO}T${parsed.start_time ? parsed.start_time : '09:00'}:00+07:00`
+    const calEndFinal = endDateTime || new Date(new Date(calEnd).getTime() + 60 * 60 * 1000).toISOString()
+    createCalendarEvent(
+      taskTitle,
+      calStart,
+      calEndFinal,
+      description || text
+    ).catch(() => {})
+  }
 
   return { category, label: CATEGORY_LABELS[category] }
 }
