@@ -63,6 +63,7 @@ export async function classifyAndSave(text) {
     parent: isDatabase
       ? { database_id: pageId }
       : { page_id: pageId },
+    icon: isDatabase ? { type: 'emoji', emoji: '✅' } : undefined,
     properties: isDatabase
       ? {
           Task: { title: [{ text: { content: text.slice(0, 100) } }] },
