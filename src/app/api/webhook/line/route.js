@@ -74,8 +74,8 @@ export async function POST(request) {
       }
 
       // คำสั่ง: ดูตาราง
-      const isToday = lowerText.includes('ตารางวันนี้') || lowerText.includes('กำหนดการวันนี้') || lowerText.includes('วันนี้มีอะไร') || lowerText.includes('มีอะไรวันนี้')
-      const isTomorrow = lowerText.includes('พรุ่งนี้มีอะไร') || lowerText.includes('มีอะไรพรุ่งนี้') || lowerText.includes('ตารางพรุ่งนี้')
+      const isToday = lowerText === 'วันนี้' || lowerText.includes('ตารางวันนี้') || lowerText.includes('กำหนดการวันนี้') || lowerText.includes('วันนี้มีอะไร') || lowerText.includes('มีอะไรวันนี้')
+      const isTomorrow = lowerText === 'พรุ่งนี้' || lowerText.includes('พรุ่งนี้มีอะไร') || lowerText.includes('มีอะไรพรุ่งนี้') || lowerText.includes('ตารางพรุ่งนี้')
       if (isToday || isTomorrow) {
         const targetDate = isTomorrow ? new Date(Date.now() + 86400000) : new Date()
         const events = await getTodayEvents(targetDate)
