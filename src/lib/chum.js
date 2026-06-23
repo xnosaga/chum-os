@@ -109,7 +109,7 @@ export async function classifyAndSave(text) {
   "start_time": "HH:MM หรือ null (24hr)",
   "end_time": "HH:MM หรือ null (24hr)",
   "description": "รายละเอียด หรือ null",
-  "location": "Google Maps URL ถ้ามี https://maps.google.com หรือ https://goo.gl/maps ใน text ให้ใส่ URL นั้น หรือ null"
+  "location": "ชื่อสถานที่ และ/หรือ Google Maps URL ถ้ามีใน text หรือ null"
 }
 
 กฎ category:
@@ -161,8 +161,8 @@ export async function classifyAndSave(text) {
 
     const dateISO = toISO(parsed.date) || todayISO
     const taskTitle = parsed.task || text.slice(0, 100)
-    const description = parsed.description || null
-    const location = parsed.location || null
+    const description = [parsed.description, parsed.location].filter(Boolean).join('\n') || null
+    const location = null
 
     const startDateTime = parsed.start_time ? `${dateISO}T${parsed.start_time}:00+07:00` : dateISO
     const endDateTime = parsed.end_time ? `${dateISO}T${parsed.end_time}:00+07:00` : null
@@ -176,7 +176,6 @@ export async function classifyAndSave(text) {
           Task: { title: [{ text: { content: taskTitle } }] },
           Date: dateProperty,
           ...(description && { Description: { rich_text: [{ text: { content: description } }] } }),
-          ...(location && { Location: { url: location } }),
         }
       : {
           title: { title: [{ text: { content: text.slice(0, 100) } }] },
