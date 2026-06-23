@@ -202,6 +202,66 @@ export async function classifyAndSave(text) {
   return { category, label: CATEGORY_LABELS[category] }
 }
 
+export async function analyzeImageAndSave(base64, mediaType) {
+  const response = await anthropic.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: 600,
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: mediaType, data: base64 }
+        },
+        {
+          type: 'text',
+          text: `วิเคราะห์รูปนี้แล้วตอบเป็น JSON เท่านั้น:
+
+{
+  "category": "workout|inbox|tasks|content|income",
+  "summary": "สรุปสั้นๆ ว่าเห็นอะไรในรูป (1-2 ประโยค ภาษาไทย)",
+  "detail": "รายละเอียดเพิ่มเติม เช่น ชื่ออาหาร แคลอรี่โดยประมาณ หรือ null"
+}
+
+กฎ category:
+- workout = อาหาร เครื่องดื่ม ออกกำลังกาย สุขภาพ
+- tasks = งาน เอกสาร สไลด์ whiteboard
+- content = ไอเดีย screenshot คอนเทนต์
+- income = ใบเสร็จ สลิป เงิน
+- inbox = อื่นๆ`
+        }
+      ]
+    }]
+  })
+
+  addUsage(response.usage.input_tokens, response.usage.output_tokens).catch(() => {})
+
+  let parsed = {}
+  try {
+    const json = response.content[0].text.match(/\{[\s\S]*\}/)
+    parsed = json ? JSON.parse(json[0]) : {}
+  } catch {}
+
+  const category = parsed.category && PAGE_MAP[parsed.category] ? parsed.category : 'inbox'
+  const pageId = PAGE_MAP[category]
+  const summary = parsed.summary || 'รูปภาพจาก LINE'
+  const detail = parsed.detail || ''
+  const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' })
+
+  await notion.pages.create({
+    parent: { page_id: pageId },
+    properties: {
+      title: { title: [{ text: { content: summary } }] }
+    },
+    children: [{
+      object: 'block', type: 'paragraph',
+      paragraph: { rich_text: [{ type: 'text', text: { content: `🖼️ ${summary}\n\n${detail}\n\n🕐 ${now} · จาก LINE (รูปภาพ)` } }] }
+    }]
+  })
+
+  return { label: CATEGORY_LABELS[category], description: `${summary}${detail ? '\n' + detail : ''}` }
+}
+
 // ส่ง Telegram notification
 export async function sendTelegram(message) {
   const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`

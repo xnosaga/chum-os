@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { Client } from '@notionhq/client'
-import { classifyAndSave, sendTelegram } from '@/lib/chum'
+import { classifyAndSave, analyzeImageAndSave, sendTelegram } from '@/lib/chum'
 import { getTodayEvents, createCalendarEvent, formatEvents } from '@/lib/google-calendar'
 import { searchNotion } from '@/lib/notion-search'
 
@@ -71,9 +71,24 @@ export async function POST(request) {
       continue
     }
 
-    // รูปภาพ / สติ๊กเกอร์ / ไฟล์ / เสียง
+    // รูปภาพ → ส่งให้ Claude วิเคราะห์
+    if (event.type === 'message' && event.message.type === 'image') {
+      const messageId = event.message.id
+      // ดึงรูปจาก LINE API
+      const imgRes = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
+        headers: { Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+      })
+      const imgBuffer = await imgRes.arrayBuffer()
+      const base64 = Buffer.from(imgBuffer).toString('base64')
+      const mediaType = imgRes.headers.get('content-type') || 'image/jpeg'
+      const { label, description } = await analyzeImageAndSave(base64, mediaType)
+      await replyLine(event.replyToken, `✅ บันทึกแล้วใน ${label}\n\n${description}`)
+      continue
+    }
+
+    // สติ๊กเกอร์ / ไฟล์ / เสียง / วิดีโอ
     if (event.type === 'message' && event.message.type !== 'text') {
-      const typeMap = { image: 'รูปภาพ', sticker: 'สติ๊กเกอร์', file: 'ไฟล์', audio: 'เสียง', video: 'วิดีโอ' }
+      const typeMap = { sticker: 'สติ๊กเกอร์', file: 'ไฟล์', audio: 'เสียง', video: 'วิดีโอ' }
       const typeName = typeMap[event.message.type] || event.message.type
       await replyLine(event.replyToken, `📎 รับ${typeName}แล้วครับ แต่ยังไม่รองรับการบันทึก${typeName}\nพิมพ์ข้อความอธิบายแทนได้เลยครับ`)
       continue
