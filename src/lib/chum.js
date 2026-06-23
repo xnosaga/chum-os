@@ -26,20 +26,71 @@ const CATEGORY_LABELS = {
 
 function toISO(dateStr) {
   if (!dateStr) return null
-  // แปลง พ.ศ. → ค.ศ. และ format ต่างๆ
   const cleaned = dateStr.trim()
     .replace(/(\d{4})/g, m => parseInt(m) > 2400 ? String(parseInt(m) - 543) : m)
     .replace(/[\/\.]/g, '-')
-  // dd-mm-yyyy หรือ d-m-yyyy
+  // yyyy-mm-dd (Claude return แบบนี้โดยตรง)
+  if (/^\d{4}-\d{2}-\d{2}/.test(cleaned)) return cleaned.slice(0, 10)
+  // dd-mm-yyyy
   const match = cleaned.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/)
   if (match) return `${match[3]}-${match[2].padStart(2,'0')}-${match[1].padStart(2,'0')}`
-  // yyyy-mm-dd
-  if (/^\d{4}-\d{2}-\d{2}/.test(cleaned)) return cleaned.slice(0, 10)
+  return null
+}
+
+// แปลงเวลาภาษาไทย → HH:MM
+function parseThaiTime(timeStr) {
+  if (!timeStr) return null
+  const s = timeStr.toLowerCase().trim()
+  // HH:MM or HH.MM
+  const hhmm = s.match(/(\d{1,2})[:\.](\d{2})/)
+  if (hhmm) {
+    let h = parseInt(hhmm[1]), m = parseInt(hhmm[2])
+    if (/pm|บ่าย|เย็น|ค่ำ|ทุ่ม/.test(s) && h < 12) h += 12
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`
+  }
+  // "บ่ายสาม" "สามโมงเย็น" "สี่ทุ่ม" "ตีสอง"
+  const thaiNum = { 'หนึ่ง':1,'สอง':2,'สาม':3,'สี่':4,'ห้า':5,'หก':6,'เจ็ด':7,'แปด':8,'เก้า':9,'สิบ':10,'สิบเอ็ด':11,'สิบสอง':12 }
+  for (const [word, num] of Object.entries(thaiNum)) {
+    if (s.includes(word)) {
+      if (s.includes('ตี')) return `${String(num).padStart(2,'0')}:00`
+      if (s.includes('เช้า') || s.includes('โมงเช้า')) return num < 7 ? `0${num}:00` : `${num}:00`
+      if (s.includes('บ่าย')) return `${num + 12}:00`
+      if (s.includes('เย็น')) return num <= 6 ? `${num + 12}:00` : `${num}:00`
+      if (s.includes('ทุ่ม')) return `${num + 18}:00`
+      if (s.includes('โมง')) return num <= 6 ? `0${num}:00` : `${num}:00`
+    }
+  }
   return null
 }
 
 export async function classifyAndSave(text) {
   const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+  const now = new Date()
+  // คำนวณวันในสัปดาห์นี้/หน้า
+  const dayNames = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัส','ศุกร์','เสาร์']
+  const todayDow = now.getDay()
+  function nextDayISO(targetDow, nextWeek = false) {
+    let diff = targetDow - todayDow
+    if (diff <= 0 || nextWeek) diff += 7
+    const d = new Date(now)
+    d.setDate(d.getDate() + diff)
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+  }
+  // แทนที่วันสัมพัทธ์ใน text ก่อนส่ง Claude
+  let processedText = text
+  const tomorrowISO = new Date(now.getTime() + 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+  processedText = processedText.replace(/พรุ่งนี้/g, `พรุ่งนี้(${tomorrowISO})`)
+  processedText = processedText.replace(/วันนี้/g, `วันนี้(${todayISO})`)
+  for (let i = 0; i < 7; i++) {
+    const isNextWeek = processedText.includes(`วัน${dayNames[i]}หน้า`)
+    if (isNextWeek) processedText = processedText.replace(`วัน${dayNames[i]}หน้า`, `วัน${dayNames[i]}หน้า(${nextDayISO(i, true)})`)
+    const isThis = processedText.includes(`วัน${dayNames[i]}นี้`) || (processedText.includes(`วัน${dayNames[i]}`) && !processedText.includes('หน้า'))
+    if (isThis && i !== todayDow) processedText = processedText.replace(`วัน${dayNames[i]}`, `วัน${dayNames[i]}(${nextDayISO(i, false)})`)
+  }
+  if (/อาทิตย์หน้า|สัปดาห์หน้า/.test(processedText)) {
+    const nextSun = new Date(now); nextSun.setDate(now.getDate() + (7 - todayDow))
+    processedText = processedText.replace(/อาทิตย์หน้า|สัปดาห์หน้า/g, `อาทิตย์หน้า(${nextSun.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })})`)
+  }
 
   // ให้ Claude จำแนกและแยก fields พร้อมกัน รองรับหลาย events
   const response = await anthropic.messages.create({
@@ -53,25 +104,35 @@ export async function classifyAndSave(text) {
 
 {
   "category": "inbox|tasks|workout|content|income",
-  "task": "ชื่องาน/หัวข้อสั้นๆ",
-  "date": "dd/mm/yyyy หรือ null",
-  "start_time": "HH:MM หรือ null",
-  "end_time": "HH:MM หรือ null",
+  "task": "ชื่องาน/หัวข้อสั้นๆ (ไม่เกิน 80 ตัวอักษร)",
+  "date": "yyyy-mm-dd หรือ null",
+  "start_time": "HH:MM หรือ null (24hr)",
+  "end_time": "HH:MM หรือ null (24hr)",
   "description": "รายละเอียด หรือ null",
   "location": "สถานที่ หรือ null"
 }
 
 กฎ category:
-- tasks = งาน ประชุม อบรม กิจกรรม ส่งเอกสาร deadline นัดหมาย ทุกอย่างที่มีวันที่/เวลา
+- tasks = งาน ประชุม อบรม กิจกรรม ส่งเอกสาร deadline นัดหมาย ทุกอย่างที่มีกำหนดการ
 - workout = ออกกำลังกาย อาหาร น้ำหนัก สุขภาพ
 - content = คลิป วิดีโอ ไอเดียคอนเทนต์ YouTube TikTok
 - income = รายได้เสริม affiliate course ขายของ
-- inbox = อื่นๆ ที่ไม่ใช่หมวดข้างบน
+- inbox = บันทึก ไอเดีย ข้อมูล หรือสิ่งที่ไม่มีกำหนดการ
 
-หมายเหตุ: แปลง พ.ศ.→ค.ศ. โดยลบ 543 (เช่น 2569→2026, 69→2026)
+กฎวันที่:
+- แปลง พ.ศ.→ค.ศ. โดยลบ 543 (เช่น 2569→2026)
+- วันในวงเล็บ () คือวันที่จริงในรูป yyyy-mm-dd ให้ใช้ค่านั้นได้เลย
+- ถ้าไม่มีวันที่ให้ใช้ ${todayISO}
+
+กฎเวลา:
+- บ่ายสาม = 15:00, สามทุ่ม = 21:00, ตีสอง = 02:00
+- เช้า/โมงเช้า = AM, บ่าย/เย็น/ทุ่ม = PM
+- 9.00-12.00 → start=09:00 end=12:00
+
+ข้อความยาวให้ดึงเฉพาะส่วนที่เป็นกำหนดการ
 วันนี้คือ ${todayISO} (ค.ศ.)
 
-ข้อความ: "${text}"`
+ข้อความ: "${processedText.slice(0, 800)}"`
     }]
   })
 

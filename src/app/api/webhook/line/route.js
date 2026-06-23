@@ -28,6 +28,9 @@ async function replyLine(replyToken, message) {
   })
 }
 
+// dedup: เก็บ message IDs ล่าสุดไม่ให้บันทึกซ้ำ
+const recentMessageIds = new Set()
+
 export async function POST(request) {
   const rawBody = await request.text()
   const signature = request.headers.get('x-line-signature')
@@ -41,10 +44,27 @@ export async function POST(request) {
   const events = body.events || []
 
   for (const event of events) {
+    // รูปภาพ / สติ๊กเกอร์ / ไฟล์ / เสียง
+    if (event.type === 'message' && event.message.type !== 'text') {
+      const typeMap = { image: 'รูปภาพ', sticker: 'สติ๊กเกอร์', file: 'ไฟล์', audio: 'เสียง', video: 'วิดีโอ' }
+      const typeName = typeMap[event.message.type] || event.message.type
+      await replyLine(event.replyToken, `📎 รับ${typeName}แล้วครับ แต่ยังไม่รองรับการบันทึก${typeName}\nพิมพ์ข้อความอธิบายแทนได้เลยครับ`)
+      continue
+    }
+
     if (event.type !== 'message' || event.message.type !== 'text') continue
 
     const text = event.message.text
     const replyToken = event.replyToken
+    const messageId = event.message.id
+
+    // dedup: ข้ามถ้าเพิ่งบันทึก message นี้ไปแล้ว
+    if (recentMessageIds.has(messageId)) continue
+    recentMessageIds.add(messageId)
+    if (recentMessageIds.size > 100) {
+      const first = recentMessageIds.values().next().value
+      recentMessageIds.delete(first)
+    }
 
     try {
       const lowerText = text.trim().toLowerCase()
